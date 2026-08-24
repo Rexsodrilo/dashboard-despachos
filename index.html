@@ -17,7 +17,7 @@
         .container { max-width: 1200px; margin: 0 auto; }
         header {
             display: flex; justify-content: space-between; align-items: center;
-            border-bottom: 1px solid #333; padding-bottom: 20px; margin-bottom: 30px;
+            border-bottom: 1px solid #333; padding-bottom: 20px; margin-bottom: 15px;
         }
         h1 { font-weight: 300; margin: 0; color: #ffffff; letter-spacing: 1px; }
         .btn {
@@ -29,6 +29,12 @@
         #sync-btn { display: none; background-color: #1e3a8a; border-color: #1e40af; }
         #sync-btn:hover { background-color: #1e40af; }
         
+        /* Leyenda de Registros */
+        .records-summary {
+            font-size: 13px; color: #888; margin-bottom: 25px; font-weight: 300;
+        }
+        .records-summary strong { color: #38bdf8; }
+
         .kpi-grid {
             display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
             gap: 20px; margin-bottom: 25px;
@@ -46,8 +52,16 @@
         }
         .monto-coordinado-bar .monto-title { font-size: 13px; color: #aaa; text-transform: uppercase; letter-spacing: 1px; }
         .monto-coordinado-bar .monto-val { font-size: 1.8em; font-weight: 300; color: #38bdf8; }
+
+        /* Contenedor del Gráfico Circular */
+        .chart-panel {
+            background-color: #1a1a1a; border: 1px solid #2d2d2d; border-radius: 6px;
+            padding: 25px; margin-bottom: 30px; text-align: center;
+        }
+        .chart-panel h3 { margin: 0 0 20px 0; font-size: 13px; color: #aaa; text-transform: uppercase; letter-spacing: 1px; font-weight: normal; }
+        .chart-container { max-width: 380px; margin: 0 auto; }
         
-        /* Acordeones / Desplegables */
+        /* Acordeones */
         details {
             background-color: #1a1a1a; border: 1px solid #2d2d2d; border-radius: 6px;
             margin-bottom: 20px; overflow: hidden;
@@ -67,8 +81,6 @@
         tr:hover { background-color: #222; }
 
         .badge { padding: 3px 8px; border-radius: 10px; font-size: 10px; text-transform: uppercase; }
-        .badge.entregado { background-color: #064e3b; color: #34d399; border: 1px solid #065f46; }
-        .badge.pendiente { background-color: #78350f; color: #fbbf24; border: 1px solid #92400e; }
         .badge.dias { background-color: #312e81; color: #a5b4fc; border: 1px solid #3730a3; }
     </style>
 </head>
@@ -83,7 +95,12 @@
         </div>
     </header>
 
-    <!-- Indicadores Principales (Excluye Nulas) -->
+    <!-- Leyenda de Registros Cargados -->
+    <div class="records-summary" id="records-legend">
+        Esperando carga de datos...
+    </div>
+
+    <!-- Indicadores Principales -->
     <div class="kpi-grid">
         <div class="kpi-card">
             <div class="kpi-title">Total Válidas</div>
@@ -103,10 +120,18 @@
         </div>
     </div>
 
-    <!-- Indicador de Dinero Coordinado -->
+    <!-- Indicador Dinero Coordinado Total -->
     <div class="monto-coordinado-bar">
         <span class="monto-title">Monto Total Coordinado en Dinero</span>
         <span class="monto-val" id="monto-coordinado">$0</span>
+    </div>
+
+    <!-- Gráfico Circular: Dinero Pendiente de Entregar -->
+    <div class="chart-panel">
+        <h3>Dinero Pendiente de Entregar ($)</h3>
+        <div class="chart-container">
+            <canvas id="pendingChart"></canvas>
+        </div>
     </div>
 
     <!-- Desplegable 1: NV Coordinadas -->
@@ -160,6 +185,7 @@
 
 <script>
     let fileHandle;
+    let chartInstance = null;
 
     async function enlazarArchivo() {
         try {
@@ -205,30 +231,59 @@
         return dias < 0 ? 0 : dias;
     }
 
+    function esRegistroCoordinado(row) {
+        const motivo = (row['Motivo'] || '').toString().trim().toLowerCase();
+        if (motivo.includes('coordinado') && !motivo.includes('por coordinar')) {
+            return true;
+        }
+        if (motivo.includes('por coordinar')) {
+            return false;
+        }
+        // Respaldo si no existe la columna 'Motivo'
+        const fechaCord = row['Fecha cordiada'] || row['Fecha coordinada'];
+        return fechaCord && fechaCord.toString().trim() !== '' && fechaCord.toString().trim() !== 'NaN';
+    }
+
     function actualizarDashboard(data) {
-        // 1. Filtrar fuera todo lo que sea 'Nula'
+        const totalRegistrosTomados = data.length;
+
+        // Filtrar registros omitiendo los que tengan estado Nula
         const dataValida = data.filter(row => {
             const estado = (row['Estado'] || '').toString().trim().toLowerCase();
             return estado !== 'nula';
         });
 
+        const totalValidos = dataValida.length;
+
+        // Actualizar leyenda informativa
+        document.getElementById('records-legend').innerHTML = 
+            `Se tomaron <strong>${totalRegistrosTomados}</strong> registros, <strong>${totalValidos}</strong> válidos (excluidos registros nulos).`;
+
         let totalEntregadas = 0;
         let totalMontoCoordinado = 0;
+        let montoPendienteCoordinado = 0;
+        let montoPendienteNoCoordinado = 0;
 
         const coordinadasList = [];
         const porCoordinarList = [];
 
         dataValida.forEach(row => {
-            const estado = (row['Estado'] || '').toString().trim();
-            const fechaCord = row['Fecha cordiada'] || row['Fecha coordinada'];
+            const estado = (row['Estado'] || '').toString().trim().toLowerCase();
             const monto = parseFloat(row['Monto Neto']) || 0;
+            const estaCoordinado = esRegistroCoordinado(row);
 
-            if (estado.toLowerCase() === 'concluida') {
+            if (estado === 'concluida') {
                 totalEntregadas++;
+            } else {
+                // Si la orden aún no está entregada/concluida, cuenta como pendiente de entregar
+                if (estaCoordinado) {
+                    montoPendienteCoordinado += monto;
+                } else {
+                    montoPendienteNoCoordinado += monto;
+                }
             }
 
-            // Consideramos coordinada si tiene fecha de coordinación registrada
-            if (fechaCord && fechaCord.toString().trim() !== '' && fechaCord.toString().trim() !== 'NaN') {
+            if (estaCoordinado) {
                 coordinadasList.push(row);
                 totalMontoCoordinado += monto;
             } else {
@@ -236,8 +291,8 @@
             }
         });
 
-        // Actualizar KPIs Principales
-        document.getElementById('kpi-total').innerText = dataValida.length;
+        // Actualizar KPIs
+        document.getElementById('kpi-total').innerText = totalValidos;
         document.getElementById('kpi-entregados').innerText = totalEntregadas;
         document.getElementById('kpi-coordinadas').innerText = coordinadasList.length;
         document.getElementById('kpi-por-coordinar').innerText = porCoordinarList.length;
@@ -245,6 +300,9 @@
         document.getElementById('monto-coordinado').innerText = '$' + totalMontoCoordinado.toLocaleString('es-CL');
         document.getElementById('cant-coordinadas').innerText = coordinadasList.length + ' registros';
         document.getElementById('cant-por-coordinar').innerText = porCoordinarList.length + ' registros';
+
+        // Renderizar gráfico de dinero pendiente
+        renderizarGraficoDinero(montoPendienteCoordinado, montoPendienteNoCoordinado);
 
         // Llenar Tabla 1: NV Coordinadas
         const tbodyCord = document.getElementById('tbl-coordinadas');
@@ -276,6 +334,40 @@
                 <td>${row['Nombre Vendedor'] || '-'}</td>
             `;
             tbodyPorCord.appendChild(tr);
+        });
+    }
+
+    function renderizarGraficoDinero(montoCoordinado, montoNoCoordinado) {
+        const ctx = document.getElementById('pendingChart').getContext('2d');
+        if (chartInstance) chartInstance.destroy();
+
+        Chart.defaults.color = '#888';
+        chartInstance = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Pendiente Coordinado ($)', 'Pendiente No Coordinado ($)'],
+                datasets: [{
+                    data: [montoCoordinado, montoNoCoordinado],
+                    backgroundColor: ['#38bdf8', '#fbbf24'],
+                    borderColor: '#1a1a1a',
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                cutout: '70%',
+                plugins: {
+                    legend: { position: 'bottom' },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                let val = context.raw || 0;
+                                return ' ' + context.label + ': $' + val.toLocaleString('es-CL');
+                            }
+                        }
+                    }
+                }
+            }
         });
     }
 </script>
