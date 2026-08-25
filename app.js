@@ -38,30 +38,13 @@ function handleFileUpload(event) {
     const firstSheet = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[firstSheet];
     
-    // Convertir hoja a JSON ignorando filas vacías superiores
-    const rawData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
-    
-    // Ubicar la fila real de encabezados
-    let headerRowIndex = 0;
-    for (let i = 0; i < Math.min(rawData.length, 15); i++) {
-      const rowStr = rawData[i].join(' ').toUpperCase();
-      if (rowStr.includes('NV') || rowStr.includes('CLIENTE') || rowStr.includes('ESTADO') || rowStr.includes('CANAL')) {
-        headerRowIndex = i;
-        break;
-      }
-    }
+    // Convertir la hoja directamente a un array de objetos utilizando los encabezados nativos
+    const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: '', raw: false });
 
-    // Extraer registros a partir de la fila de encabezados
-    const jsonData = XLSX.utils.sheet_to_json(worksheet, { range: headerRowIndex, defval: '' });
-
-    // Normalizar nombres de columnas a minúsculas
-    globalData = jsonData.map(row => {
-      const cleanRow = {};
-      Object.keys(row).forEach(key => {
-        const cleanKey = key.toString().trim().toLowerCase();
-        cleanRow[cleanKey] = row[key];
-      });
-      return cleanRow;
+    // Filtrar filas completamente vacías o encabezados repetidos
+    globalData = jsonData.filter(row => {
+      const rowString = JSON.stringify(row).toLowerCase();
+      return !rowString.includes('nota de venta') && Object.values(row).some(val => val !== '');
     });
 
     const syncInfo = document.getElementById('sync-info');
@@ -75,11 +58,14 @@ function handleFileUpload(event) {
   reader.readAsArrayBuffer(file);
 }
 
-// Buscar valores en la fila probando múltiples alias de columnas
+// Búsqueda insensible a mayúsculas/minúsculas y espacios en las llaves del objeto
 function getFieldValue(item, posiblesNombres) {
+  const itemKeys = Object.keys(item);
   for (const nombre of posiblesNombres) {
-    if (item[nombre] !== undefined && item[nombre] !== null && item[nombre] !== '') {
-      return item[nombre].toString().trim();
+    const targetKey = nombre.toLowerCase().trim();
+    const foundKey = itemKeys.find(k => k.toLowerCase().trim() === targetKey);
+    if (foundKey && item[foundKey] !== undefined && item[foundKey] !== null && item[foundKey] !== '') {
+      return item[foundKey].toString().trim();
     }
   }
   return '';
@@ -89,7 +75,7 @@ function filterData() {
   const searchTerm = (document.getElementById('search-input')?.value || '').toLowerCase();
 
   return globalData.filter(item => {
-    // Coincidencia amplia para el Canal (Columna C1, CANAL, CANAL VENTA)
+    // Busca en la columna C1 o variaciones de Canal
     const canalVal = getFieldValue(item, ['c1', 'canal', 'canal venta', 'canal de venta']).toLowerCase();
 
     // Filtro por Canal de Venta
@@ -106,7 +92,7 @@ function filterData() {
       matchesChannel = canalVal.includes('ecommerce') || canalVal.includes('e-commerce') || canalVal.includes('web');
     }
 
-    // Filtro por Buscador (NV, Cliente, Vendedor)
+    // Filtro por Buscador General
     const nv = getFieldValue(item, ['nv', 'n° nv', 'nota venta', 'nota de venta', 'nro nv']).toLowerCase();
     const cliente = getFieldValue(item, ['cliente', 'nombre cliente', 'razon social', 'razón social']).toLowerCase();
     const vendedor = getFieldValue(item, ['vendedor', 'nombre vendedor']).toLowerCase();
@@ -128,7 +114,6 @@ function renderKanban() {
   };
 
   filtered.forEach(item => {
-    // Coincidencia amplia para el Estado de la NV
     const estado = getFieldValue(item, ['estado', 'estado nv', 'estado logistico', 'situacion', 'est.']).toLowerCase();
 
     if (estado.includes('entregado') || estado.includes('concluido') || estado.includes('finalizado')) {
@@ -161,6 +146,7 @@ function updateColumnUI(containerId, countId, items) {
     const card = document.createElement('div');
     card.className = 'card';
 
+    // Extracción limpia de campos probando variantes comunes
     const nv = getFieldValue(item, ['nv', 'n° nv', 'nota venta', 'nota de venta', 'nro nv']) || 'N/A';
     const cliente = getFieldValue(item, ['cliente', 'nombre cliente', 'razon social', 'razón social']) || 'Cliente no especificado';
     const vendedor = getFieldValue(item, ['vendedor', 'nombre vendedor']) || 'Sin asignar';
