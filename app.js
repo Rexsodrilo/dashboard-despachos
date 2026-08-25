@@ -38,18 +38,21 @@ function handleFileUpload(event) {
     const firstSheet = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[firstSheet];
     
-    // Convertir la hoja directamente a un array de objetos utilizando los encabezados nativos
-    const jsonData = XLSX.utils.sheet_to_json(worksheet, { defval: '', raw: false });
+    // Convertir la hoja a JSON raw (SheetJS tomará los encabezados de la fila 1)
+    const rawData = XLSX.utils.sheet_to_json(worksheet, { defval: '', raw: false });
 
-    // Filtrar filas completamente vacías o encabezados repetidos
-    globalData = jsonData.filter(row => {
-      const rowString = JSON.stringify(row).toLowerCase();
-      return !rowString.includes('nota de venta') && Object.values(row).some(val => val !== '');
+    // Limpiar claves de encabezados eliminando espacios y convirtiendo a minúsculas
+    globalData = rawData.map(row => {
+      const cleanRow = {};
+      Object.keys(row).forEach(key => {
+        cleanRow[key.trim().toLowerCase()] = row[key] ? row[key].toString().trim() : '';
+      });
+      return cleanRow;
     });
 
     const syncInfo = document.getElementById('sync-info');
     if (syncInfo) {
-      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       syncInfo.textContent = `Actualizado: ${timeStr}`;
     }
 
@@ -58,14 +61,11 @@ function handleFileUpload(event) {
   reader.readAsArrayBuffer(file);
 }
 
-// Búsqueda insensible a mayúsculas/minúsculas y espacios en las llaves del objeto
-function getFieldValue(item, posiblesNombres) {
-  const itemKeys = Object.keys(item);
-  for (const nombre of posiblesNombres) {
-    const targetKey = nombre.toLowerCase().trim();
-    const foundKey = itemKeys.find(k => k.toLowerCase().trim() === targetKey);
-    if (foundKey && item[foundKey] !== undefined && item[foundKey] !== null && item[foundKey] !== '') {
-      return item[foundKey].toString().trim();
+// Extrae el valor de un campo probando variaciones de nombres
+function getValue(item, keys) {
+  for (const k of keys) {
+    if (item[k] !== undefined && item[k] !== '') {
+      return item[k];
     }
   }
   return '';
@@ -75,10 +75,10 @@ function filterData() {
   const searchTerm = (document.getElementById('search-input')?.value || '').toLowerCase();
 
   return globalData.filter(item => {
-    // Busca en la columna C1 o variaciones de Canal
-    const canalVal = getFieldValue(item, ['c1', 'canal', 'canal venta', 'canal de venta']).toLowerCase();
+    // 1. Obtener Canal (Columna C: "Canal")
+    const canalVal = getValue(item, ['canal']).toLowerCase();
 
-    // Filtro por Canal de Venta
+    // 2. Filtro por botones laterales
     let matchesChannel = false;
     if (activeChannel === 'todos') {
       matchesChannel = true;
@@ -86,18 +86,17 @@ function filterData() {
       matchesChannel = canalVal.includes('retail');
     } else if (activeChannel === 'a despachar') {
       matchesChannel = canalVal.includes('despachar') || canalVal.includes('despacho');
-    } else if (activeChannel === 'a retirar por cliente') {
+    } else if (activeChannel === 'a retirar cliente' || activeChannel === 'a retirar por cliente') {
       matchesChannel = canalVal.includes('retirar') || canalVal.includes('retiro');
     } else if (activeChannel === 'ecommerce') {
       matchesChannel = canalVal.includes('ecommerce') || canalVal.includes('e-commerce') || canalVal.includes('web');
     }
 
-    // Filtro por Buscador General
-    const nv = getFieldValue(item, ['nv', 'n° nv', 'nota venta', 'nota de venta', 'nro nv']).toLowerCase();
-    const cliente = getFieldValue(item, ['cliente', 'nombre cliente', 'razon social', 'razón social']).toLowerCase();
-    const vendedor = getFieldValue(item, ['vendedor', 'nombre vendedor']).toLowerCase();
+    // 3. Filtro de búsqueda por N.Venta o Nombre Cliente
+    const nv = getValue(item, ['n.venta', 'n° nv', 'nv']).toLowerCase();
+    const cliente = getValue(item, ['nombre cliente', 'cliente']).toLowerCase();
 
-    const matchesSearch = !searchTerm || nv.includes(searchTerm) || cliente.includes(searchTerm) || vendedor.includes(searchTerm);
+    const matchesSearch = !searchTerm || nv.includes(searchTerm) || cliente.includes(searchTerm);
 
     return matchesChannel && matchesSearch;
   });
@@ -114,15 +113,17 @@ function renderKanban() {
   };
 
   filtered.forEach(item => {
-    const estado = getFieldValue(item, ['estado', 'estado nv', 'estado logistico', 'situacion', 'est.']).toLowerCase();
+    // Clasificación por Columna D: "Estado"
+    const estado = getValue(item, ['estado']).toLowerCase();
 
-    if (estado.includes('entregado') || estado.includes('concluido') || estado.includes('finalizado')) {
+    if (estado.includes('concluida') || estado.includes('entregado') || estado.includes('finalizada')) {
       cols.entregado.push(item);
-    } else if (estado.includes('programado')) {
+    } else if (estado.includes('programada') || estado.includes('programado')) {
       cols.programado.push(item);
-    } else if (estado.includes('despacho') || estado.includes('transito') || estado.includes('tránsito') || estado.includes('en ruta')) {
+    } else if (estado.includes('despacho') || estado.includes('en transito') || estado.includes('tránsito')) {
       cols.despacho.push(item);
     } else {
+      // "Aprobada" o cualquier otro estado pasa a Por Programar
       cols.porProgramar.push(item);
     }
   });
@@ -146,20 +147,18 @@ function updateColumnUI(containerId, countId, items) {
     const card = document.createElement('div');
     card.className = 'card';
 
-    // Extracción limpia de campos probando variantes comunes
-    const nv = getFieldValue(item, ['nv', 'n° nv', 'nota venta', 'nota de venta', 'nro nv']) || 'N/A';
-    const cliente = getFieldValue(item, ['cliente', 'nombre cliente', 'razon social', 'razón social']) || 'Cliente no especificado';
-    const vendedor = getFieldValue(item, ['vendedor', 'nombre vendedor']) || 'Sin asignar';
-    const fecha = getFieldValue(item, ['fecha nv', 'fecha', 'fecha de emisión', 'f. nv']) || 'N/A';
-    const compromiso = getFieldValue(item, ['compromiso', 'fecha compromiso', 'f. compromiso']) || 'N/A';
+    // Mapeo directo a los campos de la imagen
+    const nv = getValue(item, ['n.venta', 'nv']) || 'N/A';
+    const cliente = getValue(item, ['nombre cliente']) || 'Cliente no especificado';
+    const fecha = getValue(item, ['fecha de nv', 'fecha nv']) || 'N/A';
+    const estado = getValue(item, ['estado']) || 'Sin Estado';
 
     card.innerHTML = `
       <span class="card-nv">NV: #${nv}</span>
       <div class="card-client">${cliente}</div>
-      <div class="card-field">Vendedor: <strong>${vendedor}</strong></div>
       <div class="card-field">Fecha NV: <strong>${fecha}</strong></div>
-      <div class="card-field">Compromiso: <strong>${compromiso}</strong></div>
-      <span class="badge-ontime">Entregado a Tiempo</span>
+      <div class="card-field">Estado: <strong>${estado}</strong></div>
+      <span class="badge-ontime">Procesado</span>
     `;
 
     container.appendChild(card);
