@@ -38,30 +38,30 @@ function handleFileUpload(event) {
     const firstSheet = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[firstSheet];
     
-    // Obtener los datos como matriz para ubicar los nombres de columnas reales
+    // Convertir hoja a JSON ignorando filas vacías superiores
     const rawData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
     
-    // Detectar qué fila contiene las cabeceras (NV, Estado, Cliente, etc.)
+    // Ubicar la fila real de encabezados
     let headerRowIndex = 0;
-    for (let i = 0; i < Math.min(rawData.length, 10); i++) {
-      const rowStr = rawData[i].join(' ').toLowerCase();
-      if (rowStr.includes('nv') || rowStr.includes('estado') || rowStr.includes('cliente')) {
+    for (let i = 0; i < Math.min(rawData.length, 15); i++) {
+      const rowStr = rawData[i].join(' ').toUpperCase();
+      if (rowStr.includes('NV') || rowStr.includes('CLIENTE') || rowStr.includes('ESTADO') || rowStr.includes('CANAL')) {
         headerRowIndex = i;
         break;
       }
     }
 
-    // Convertir a objetos usando la fila correcta como encabezado
+    // Extraer registros a partir de la fila de encabezados
     const jsonData = XLSX.utils.sheet_to_json(worksheet, { range: headerRowIndex, defval: '' });
 
-    // Normalizar las llaves del objeto a minúsculas
+    // Normalizar nombres de columnas a minúsculas
     globalData = jsonData.map(row => {
-      const normalizedRow = {};
+      const cleanRow = {};
       Object.keys(row).forEach(key => {
         const cleanKey = key.toString().trim().toLowerCase();
-        normalizedRow[cleanKey] = row[key];
+        cleanRow[cleanKey] = row[key];
       });
-      return normalizedRow;
+      return cleanRow;
     });
 
     const syncInfo = document.getElementById('sync-info');
@@ -75,10 +75,10 @@ function handleFileUpload(event) {
   reader.readAsArrayBuffer(file);
 }
 
-// Función auxiliar para buscar valores entre posibles nombres de columna
+// Buscar valores en la fila probando múltiples alias de columnas
 function getFieldValue(item, posiblesNombres) {
   for (const nombre of posiblesNombres) {
-    if (item[nombre] !== undefined && item[nombre] !== '') {
+    if (item[nombre] !== undefined && item[nombre] !== null && item[nombre] !== '') {
       return item[nombre].toString().trim();
     }
   }
@@ -89,10 +89,10 @@ function filterData() {
   const searchTerm = (document.getElementById('search-input')?.value || '').toLowerCase();
 
   return globalData.filter(item => {
-    // Buscar el canal en la columna c1, canal, o canal de venta
-    const canalVal = getFieldValue(item, ['c1', 'canal', 'canal de venta', 'canal venta']).toLowerCase();
+    // Coincidencia amplia para el Canal (Columna C1, CANAL, CANAL VENTA)
+    const canalVal = getFieldValue(item, ['c1', 'canal', 'canal venta', 'canal de venta']).toLowerCase();
 
-    // Validar Filtro por Canal
+    // Filtro por Canal de Venta
     let matchesChannel = false;
     if (activeChannel === 'todos') {
       matchesChannel = true;
@@ -106,9 +106,9 @@ function filterData() {
       matchesChannel = canalVal.includes('ecommerce') || canalVal.includes('e-commerce') || canalVal.includes('web');
     }
 
-    // Validar Búsqueda por Texto
-    const nv = getFieldValue(item, ['nv', 'n° nv', 'nota venta', 'nota de venta']).toLowerCase();
-    const cliente = getFieldValue(item, ['cliente', 'nombre cliente', 'razon social']).toLowerCase();
+    // Filtro por Buscador (NV, Cliente, Vendedor)
+    const nv = getFieldValue(item, ['nv', 'n° nv', 'nota venta', 'nota de venta', 'nro nv']).toLowerCase();
+    const cliente = getFieldValue(item, ['cliente', 'nombre cliente', 'razon social', 'razón social']).toLowerCase();
     const vendedor = getFieldValue(item, ['vendedor', 'nombre vendedor']).toLowerCase();
 
     const matchesSearch = !searchTerm || nv.includes(searchTerm) || cliente.includes(searchTerm) || vendedor.includes(searchTerm);
@@ -128,7 +128,8 @@ function renderKanban() {
   };
 
   filtered.forEach(item => {
-    const estado = getFieldValue(item, ['estado', 'estado nv', 'situacion', 'est.']).toLowerCase();
+    // Coincidencia amplia para el Estado de la NV
+    const estado = getFieldValue(item, ['estado', 'estado nv', 'estado logistico', 'situacion', 'est.']).toLowerCase();
 
     if (estado.includes('entregado') || estado.includes('concluido') || estado.includes('finalizado')) {
       cols.entregado.push(item);
@@ -160,10 +161,10 @@ function updateColumnUI(containerId, countId, items) {
     const card = document.createElement('div');
     card.className = 'card';
 
-    const nv = getFieldValue(item, ['nv', 'n° nv', 'nota venta', 'nota de venta']) || 'N/A';
-    const cliente = getFieldValue(item, ['cliente', 'nombre cliente', 'razon social']) || 'Cliente no especificado';
+    const nv = getFieldValue(item, ['nv', 'n° nv', 'nota venta', 'nota de venta', 'nro nv']) || 'N/A';
+    const cliente = getFieldValue(item, ['cliente', 'nombre cliente', 'razon social', 'razón social']) || 'Cliente no especificado';
     const vendedor = getFieldValue(item, ['vendedor', 'nombre vendedor']) || 'Sin asignar';
-    const fecha = getFieldValue(item, ['fecha nv', 'fecha', 'fecha de emisión']) || 'N/A';
+    const fecha = getFieldValue(item, ['fecha nv', 'fecha', 'fecha de emisión', 'f. nv']) || 'N/A';
     const compromiso = getFieldValue(item, ['compromiso', 'fecha compromiso', 'f. compromiso']) || 'N/A';
 
     card.innerHTML = `
