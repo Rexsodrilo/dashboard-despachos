@@ -38,10 +38,10 @@ function handleFileUpload(event) {
     const firstSheet = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[firstSheet];
     
-    // Convertir la hoja a JSON raw (SheetJS tomará los encabezados de la fila 1)
+    // Convierte la hoja tomando los nombres de la primera fila
     const rawData = XLSX.utils.sheet_to_json(worksheet, { defval: '', raw: false });
 
-    // Limpiar claves de encabezados eliminando espacios y convirtiendo a minúsculas
+    // Normaliza los nombres de las columnas (elimina espacios y convierte a minúsculas)
     globalData = rawData.map(row => {
       const cleanRow = {};
       Object.keys(row).forEach(key => {
@@ -61,7 +61,7 @@ function handleFileUpload(event) {
   reader.readAsArrayBuffer(file);
 }
 
-// Extrae el valor de un campo probando variaciones de nombres
+// Función auxiliar para leer campos tolerando nombres variados
 function getValue(item, keys) {
   for (const k of keys) {
     if (item[k] !== undefined && item[k] !== '') {
@@ -75,10 +75,10 @@ function filterData() {
   const searchTerm = (document.getElementById('search-input')?.value || '').toLowerCase();
 
   return globalData.filter(item => {
-    // 1. Obtener Canal (Columna C: "Canal")
-    const canalVal = getValue(item, ['canal']).toLowerCase();
+    // 1. Canal de Venta (Columna C: Canal)
+    const canalVal = getValue(item, ['canal', 'c1']).toLowerCase();
 
-    // 2. Filtro por botones laterales
+    // 2. Filtros por botones laterales
     let matchesChannel = false;
     if (activeChannel === 'todos') {
       matchesChannel = true;
@@ -113,17 +113,29 @@ function renderKanban() {
   };
 
   filtered.forEach(item => {
-    // Clasificación por Columna D: "Estado"
-    const estado = getValue(item, ['estado']).toLowerCase();
+    const estadoGeneral = getValue(item, ['estado', 'estado nv']).toLowerCase();
+    const estadoLogistico = getValue(item, ['estado logistico', 'despacho', 'situacion']).toLowerCase();
+    
+    const textoCompleto = `${estadoGeneral} ${estadoLogistico}`;
 
-    if (estado.includes('concluida') || estado.includes('entregado') || estado.includes('finalizada')) {
+    const esAprobado = estadoGeneral.includes('aprobad');
+    const esProgramado = textoCompleto.includes('programad');
+    const esDespacho = textoCompleto.includes('despacho') || textoCompleto.includes('transito') || textoCompleto.includes('tránsito');
+
+    // 1. Entregado / Concluido
+    if (estadoGeneral.includes('concluid') || estadoGeneral.includes('entregad') || estadoGeneral.includes('finalizad')) {
       cols.entregado.push(item);
-    } else if (estado.includes('programada') || estado.includes('programado')) {
-      cols.programado.push(item);
-    } else if (estado.includes('despacho') || estado.includes('en transito') || estado.includes('tránsito')) {
+    } 
+    // 2. En Despacho / Tránsito (Requiere estar Aprobado Y Programado Y en Despacho)
+    else if (esAprobado && esProgramado && esDespacho) {
       cols.despacho.push(item);
-    } else {
-      // "Aprobada" o cualquier otro estado pasa a Por Programar
+    } 
+    // 3. Programado (Requiere estar Aprobado Y Programado)
+    else if (esAprobado && esProgramado) {
+      cols.programado.push(item);
+    } 
+    // 4. Por Programar (Resto de casos, ej. Aprobadas sin programar)
+    else {
       cols.porProgramar.push(item);
     }
   });
@@ -147,7 +159,6 @@ function updateColumnUI(containerId, countId, items) {
     const card = document.createElement('div');
     card.className = 'card';
 
-    // Mapeo directo a los campos de la imagen
     const nv = getValue(item, ['n.venta', 'nv']) || 'N/A';
     const cliente = getValue(item, ['nombre cliente']) || 'Cliente no especificado';
     const fecha = getValue(item, ['fecha de nv', 'fecha nv']) || 'N/A';
