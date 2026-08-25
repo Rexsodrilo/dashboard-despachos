@@ -6,12 +6,13 @@
 }
 
 html, body {
-  height: 100vh;
-  max-height: 100vh;
-  overflow: hidden; /* Evita que toda la página web baile */
+  height: 100%;
   background-color: #f4f6f9;
 }
 
+/* ==========================================
+   ESTRUCTURA GENERAL (Escritorio)
+   ========================================== */
 .app-container { 
   display: flex; 
   height: 100vh; 
@@ -19,9 +20,7 @@ html, body {
   overflow: hidden;
 }
 
-/* ==========================================
-   BARRA LATERAL (Filtros y Carga)
-   ========================================== */
+/* BARRA LATERAL */
 .sidebar { 
   width: 240px; 
   min-width: 240px;
@@ -60,16 +59,14 @@ html, body {
 .btn-upload:hover { background: #15803d; }
 .sync-info { margin-top: 8px; font-size: 0.75rem; color: #94a3b8; }
 
-/* ==========================================
-   CONTENIDO PRINCIPAL (SCROLL HORIZONTAL PERMANENTE)
-   ========================================== */
+/* CONTENIDO PRINCIPAL */
 .main-content { 
   flex: 1; 
   display: flex; 
   flex-direction: column; 
   padding: 20px; 
   height: 100vh;
-  overflow-x: scroll !important; /* MUESTRA LA BARRA HORIZONTAL ABAJO SIEMPRE */
+  overflow-x: auto;
   overflow-y: hidden;
 }
 
@@ -78,7 +75,6 @@ html, body {
   justify-content: space-between; 
   align-items: center; 
   margin-bottom: 15px; 
-  min-width: 1400px; /* Fuerza espacio horizontal */
   flex-shrink: 0;
 }
 
@@ -86,19 +82,16 @@ html, body {
 .search-box input:focus { border-color: #0284c7; }
 .time-window { font-size: 0.9rem; color: #475569; background: #e2e8f0; padding: 6px 12px; border-radius: 6px; }
 
-/* ==========================================
-   TABLERO KANBAN (4 Columnas)
-   ========================================== */
+/* TABLERO KANBAN */
 .kanban-board { 
   display: flex;
   gap: 15px; 
-  min-width: 1400px; /* Asegura el ancho del tablero */
-  height: calc(100vh - 110px); /* Delimita la altura exacta disponible */
+  height: calc(100vh - 110px); 
 }
 
 .kanban-column { 
-  width: 330px;
-  min-width: 330px;
+  width: 320px;
+  min-width: 320px;
   background: #e2e8f0; 
   border-radius: 8px; 
   display: flex; 
@@ -119,46 +112,91 @@ html, body {
 .badge-count { background: #0f172a; color: #fff; padding: 2px 8px; border-radius: 12px; font-size: 0.8rem; font-weight: bold; }
 .kpi-mini { margin-top: 6px; font-size: 0.75rem; color: #334155; display: flex; justify-content: space-between; border-top: 1px solid #94a3b8; padding-top: 4px; }
 
-/* ==========================================
-   CONTENEDOR DE TARJETAS (SCROLL VERTICAL PERMANENTE)
-   ========================================== */
+/* LISTA DE TARJETAS (Scroll vertical) */
 .column-cards { 
   flex: 1; 
   padding: 10px; 
-  overflow-y: scroll !important; /* MUESTRA LA BARRA VERTICAL EN CADA COLUMNA SIEMPRE */
+  overflow-y: auto; 
   display: flex; 
   flex-direction: column; 
   gap: 10px; 
 }
 
-/* ==========================================
-   ESTILOS DE LAS TARJETAS
-   ========================================== */
+/* TARJETAS */
 .card { background: #fff; padding: 12px; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border-left: 4px solid #0284c7; flex-shrink: 0; }
-.card:hover { transform: translateY(-2px); box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
 .card-nv { font-weight: bold; color: #0284c7; cursor: pointer; display: inline-block; margin-bottom: 4px; font-size: 0.95rem; }
-.card-nv:hover { text-decoration: underline; }
 .card-client { font-weight: 600; font-size: 0.85rem; color: #1e293b; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .card-field { font-size: 0.8rem; color: #64748b; margin-bottom: 2px; }
 .card-field strong { color: #334155; }
 .badge-ontime { display: inline-block; margin-top: 6px; padding: 2px 6px; background: #dcfce7; color: #15803d; font-size: 0.7rem; border-radius: 4px; font-weight: bold; }
 
+/* BARRAS DE DESPLAZAMIENTO */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: #cbd5e1; border-radius: 4px; }
+::-webkit-scrollbar-thumb { background: #0284c7; border-radius: 4px; }
+
 /* ==========================================
-   DISEÑO VISIBLE DE BARRAS DE DESPLAZAMIENTO
+   ADAPTATIVO / RESPONSIVE (CELULARES Y TABLETS)
    ========================================== */
-::-webkit-scrollbar {
-  width: 12px;
-  height: 12px;
+
+/* TABLETS (Pantallas hasta 1024px) */
+@media screen and (max-width: 1024px) {
+  .sidebar { width: 200px; min-width: 200px; padding: 15px; }
+  .kanban-column { width: 280px; min-width: 280px; }
 }
-::-webkit-scrollbar-track {
-  background: #cbd5e1;
-  border-radius: 6px;
-}
-::-webkit-scrollbar-thumb {
-  background: #0284c7;
-  border-radius: 6px;
-  border: 2px solid #cbd5e1;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: #0369a1;
+
+/* CELULARES (Pantallas menores a 768px) */
+@media screen and (max-width: 768px) {
+  html, body { overflow: auto; height: auto; }
+  
+  .app-container { 
+    flex-direction: column; 
+    height: auto; 
+    overflow: visible; 
+  }
+
+  .sidebar { 
+    width: 100%; 
+    min-width: 100%; 
+    height: auto; 
+    padding: 15px;
+  }
+
+  .channel-filter { 
+    flex-direction: row; 
+    flex-wrap: wrap; 
+    gap: 5px; 
+    margin-top: 15px; 
+  }
+
+  .btn-channel { 
+    padding: 6px 10px; 
+    font-size: 0.8rem; 
+  }
+
+  .main-content { 
+    height: auto; 
+    overflow: visible; 
+    padding: 10px; 
+  }
+
+  .top-header { 
+    flex-direction: column; 
+    gap: 10px; 
+    align-items: stretch; 
+  }
+
+  .search-box input { width: 100%; }
+
+  .kanban-board { 
+    flex-direction: column; 
+    height: auto; 
+    gap: 20px; 
+  }
+
+  .kanban-column { 
+    width: 100%; 
+    min-width: 100%; 
+    height: 450px; /* Altura individual en celular */
+  }
 }
