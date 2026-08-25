@@ -38,10 +38,10 @@ function handleFileUpload(event) {
     const firstSheet = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[firstSheet];
     
-    // Convierte la hoja tomando los nombres de la primera fila
+    // Obtener datos raw en formato JSON
     const rawData = XLSX.utils.sheet_to_json(worksheet, { defval: '', raw: false });
 
-    // Normaliza los nombres de las columnas (elimina espacios y convierte a minúsculas)
+    // Limpiar y estandarizar claves de encabezado (minúsculas y sin espacios)
     globalData = rawData.map(row => {
       const cleanRow = {};
       Object.keys(row).forEach(key => {
@@ -61,10 +61,10 @@ function handleFileUpload(event) {
   reader.readAsArrayBuffer(file);
 }
 
-// Función auxiliar para leer campos tolerando nombres variados
+// Busca el valor de una propiedad dentro del objeto probando varias alternativas de nombres
 function getValue(item, keys) {
   for (const k of keys) {
-    if (item[k] !== undefined && item[k] !== '') {
+    if (item[k] !== undefined && item[k] !== null && item[k] !== '') {
       return item[k];
     }
   }
@@ -75,10 +75,10 @@ function filterData() {
   const searchTerm = (document.getElementById('search-input')?.value || '').toLowerCase();
 
   return globalData.filter(item => {
-    // 1. Canal de Venta (Columna C: Canal)
+    // 1. Lectura de Canal de Venta (Columna C)
     const canalVal = getValue(item, ['canal', 'c1']).toLowerCase();
 
-    // 2. Filtros por botones laterales
+    // 2. Filtro por botones del menú lateral
     let matchesChannel = false;
     if (activeChannel === 'todos') {
       matchesChannel = true;
@@ -92,11 +92,12 @@ function filterData() {
       matchesChannel = canalVal.includes('ecommerce') || canalVal.includes('e-commerce') || canalVal.includes('web');
     }
 
-    // 3. Filtro de búsqueda por N.Venta o Nombre Cliente
+    // 3. Filtro por Búsqueda General (NV, Cliente o Vendedor)
     const nv = getValue(item, ['n.venta', 'n° nv', 'nv']).toLowerCase();
     const cliente = getValue(item, ['nombre cliente', 'cliente']).toLowerCase();
+    const vendedor = getValue(item, ['nombre vendedor', 'vendedor']).toLowerCase();
 
-    const matchesSearch = !searchTerm || nv.includes(searchTerm) || cliente.includes(searchTerm);
+    const matchesSearch = !searchTerm || nv.includes(searchTerm) || cliente.includes(searchTerm) || vendedor.includes(searchTerm);
 
     return matchesChannel && matchesSearch;
   });
@@ -113,28 +114,28 @@ function renderKanban() {
   };
 
   filtered.forEach(item => {
-    const estadoGeneral = getValue(item, ['estado', 'estado nv']).toLowerCase();
-    const estadoLogistico = getValue(item, ['estado logistico', 'despacho', 'situacion']).toLowerCase();
-    
-    const textoCompleto = `${estadoGeneral} ${estadoLogistico}`;
+    // Extracción de las 3 columnas de estado clave según tu Excel:
+    const estadoGeneral = getValue(item, ['estado']).toLowerCase(); // Columna D (ej: Concluida, Aprobada)
+    const motivo = getValue(item, ['motivo']).toLowerCase(); // Columna N (ej: Programado, por coordinar)
+    const estadoKanban = getValue(item, ['estado kanban', 'estadokanban']).toLowerCase(); // Columna P (ej: Aprobada, En Ruta)
 
-    const esAprobado = estadoGeneral.includes('aprobad');
-    const esProgramado = textoCompleto.includes('programad');
-    const esDespacho = textoCompleto.includes('despacho') || textoCompleto.includes('transito') || textoCompleto.includes('tránsito');
+    const esAprobado = estadoGeneral.includes('aprobad') || estadoKanban.includes('aprobad');
+    const esMotivoProgramado = motivo.includes('programad');
+    const esEnRuta = estadoKanban.includes('en ruta') || estadoKanban.includes('despacho') || estadoKanban.includes('transito');
 
     // 1. Entregado / Concluido
-    if (estadoGeneral.includes('concluid') || estadoGeneral.includes('entregad') || estadoGeneral.includes('finalizad')) {
+    if (estadoGeneral.includes('concluid') || estadoGeneral.includes('entregad')) {
       cols.entregado.push(item);
     } 
-    // 2. En Despacho / Tránsito (Requiere estar Aprobado Y Programado Y en Despacho)
-    else if (esAprobado && esProgramado && esDespacho) {
+    // 2. En Despacho / Tránsito (Si está Aprobado + Programado + En Ruta / Despacho)
+    else if (esAprobado && (esEnRuta || (esMotivoProgramado && esEnRuta))) {
       cols.despacho.push(item);
     } 
-    // 3. Programado (Requiere estar Aprobado Y Programado)
-    else if (esAprobado && esProgramado) {
+    // 3. Programado (SI Y SOLO SI está Aprobado Y el Motivo es Programado)
+    else if (esAprobado && esMotivoProgramado) {
       cols.programado.push(item);
     } 
-    // 4. Por Programar (Resto de casos, ej. Aprobadas sin programar)
+    // 4. Por Programar (Aprobada sin programar, por coordinar u otros)
     else {
       cols.porProgramar.push(item);
     }
@@ -163,10 +164,12 @@ function updateColumnUI(containerId, countId, items) {
     const cliente = getValue(item, ['nombre cliente']) || 'Cliente no especificado';
     const fecha = getValue(item, ['fecha de nv', 'fecha nv']) || 'N/A';
     const estado = getValue(item, ['estado']) || 'Sin Estado';
+    const vendedor = getValue(item, ['nombre vendedor', 'vendedor']) || 'Sin Vendedor';
 
     card.innerHTML = `
       <span class="card-nv">NV: #${nv}</span>
       <div class="card-client">${cliente}</div>
+      <div class="card-field">Vendedor: <strong>${vendedor}</strong></div>
       <div class="card-field">Fecha NV: <strong>${fecha}</strong></div>
       <div class="card-field">Estado: <strong>${estado}</strong></div>
       <span class="badge-ontime">Procesado</span>
