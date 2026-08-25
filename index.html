@@ -1,375 +1,106 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard de Despachos & Coordinación</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-    <style>
-        body {
-            background-color: #121212;
-            color: #e0e0e0;
-            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-            margin: 0;
-            padding: 40px 20px;
-        }
-        .container { max-width: 1200px; margin: 0 auto; }
-        header {
-            display: flex; justify-content: space-between; align-items: center;
-            border-bottom: 1px solid #333; padding-bottom: 20px; margin-bottom: 15px;
-        }
-        h1 { font-weight: 300; margin: 0; color: #ffffff; letter-spacing: 1px; }
-        .btn {
-            background-color: #2a2a2a; color: #fff; border: 1px solid #444;
-            padding: 10px 20px; cursor: pointer; border-radius: 4px; transition: 0.2s;
-            font-size: 14px; text-transform: uppercase; letter-spacing: 1px;
-        }
-        .btn:hover { background-color: #3a3a3a; border-color: #666; }
-        #sync-btn { display: none; background-color: #1e3a8a; border-color: #1e40af; }
-        #sync-btn:hover { background-color: #1e40af; }
-        
-        /* Leyenda de Registros */
-        .records-summary {
-            font-size: 13px; color: #888; margin-bottom: 25px; font-weight: 300;
-        }
-        .records-summary strong { color: #38bdf8; }
-
-        .kpi-grid {
-            display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-            gap: 20px; margin-bottom: 25px;
-        }
-        .kpi-card {
-            background-color: #1a1a1a; padding: 22px; border-radius: 6px;
-            border: 1px solid #2d2d2d;
-        }
-        .kpi-title { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 1px; }
-        .kpi-value { font-size: 2.2em; font-weight: 300; margin: 8px 0 0 0; color: #fff; }
-
-        .monto-coordinado-bar {
-            background-color: #1a1a1a; border: 1px solid #2d2d2d; border-radius: 6px;
-            padding: 18px 25px; margin-bottom: 30px; display: flex; justify-content: space-between; align-items: center;
-        }
-        .monto-coordinado-bar .monto-title { font-size: 13px; color: #aaa; text-transform: uppercase; letter-spacing: 1px; }
-        .monto-coordinado-bar .monto-val { font-size: 1.8em; font-weight: 300; color: #38bdf8; }
-
-        /* Contenedor del Gráfico Circular */
-        .chart-panel {
-            background-color: #1a1a1a; border: 1px solid #2d2d2d; border-radius: 6px;
-            padding: 25px; margin-bottom: 30px; text-align: center;
-        }
-        .chart-panel h3 { margin: 0 0 20px 0; font-size: 13px; color: #aaa; text-transform: uppercase; letter-spacing: 1px; font-weight: normal; }
-        .chart-container { max-width: 380px; margin: 0 auto; }
-        
-        /* Acordeones */
-        details {
-            background-color: #1a1a1a; border: 1px solid #2d2d2d; border-radius: 6px;
-            margin-bottom: 20px; overflow: hidden;
-        }
-        summary {
-            padding: 18px 25px; font-size: 14px; text-transform: uppercase; letter-spacing: 1px;
-            color: #fff; cursor: pointer; background-color: #222; outline: none; user-select: none;
-            display: flex; justify-content: space-between; align-items: center;
-        }
-        summary:hover { background-color: #2a2a2a; }
-        summary::-webkit-details-marker { display: none; }
-        .accordion-content { padding: 20px; max-height: 400px; overflow-y: auto; }
-
-        table { width: 100%; border-collapse: collapse; text-align: left; font-size: 13px; }
-        th, td { padding: 12px 10px; border-bottom: 1px solid #2d2d2d; }
-        th { color: #888; font-weight: normal; text-transform: uppercase; font-size: 11px; }
-        tr:hover { background-color: #222; }
-
-        .badge { padding: 3px 8px; border-radius: 10px; font-size: 10px; text-transform: uppercase; }
-        .badge.dias { background-color: #312e81; color: #a5b4fc; border: 1px solid #3730a3; }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kanban Logístico Operativo</title>
+  <link rel="stylesheet" href="styles.css">
+  <!-- SheetJS para lectura de Excel local -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
+  <div class="app-container">
+    
+    <!-- BARRA LATERAL (Filtro por Canal) -->
+    <aside class="sidebar">
+      <div class="brand">
+        <h2>Logística</h2>
+        <span class="subtext">Operaciones Kanban</span>
+      </div>
+      <div class="channel-filter">
+        <h3>Canal de Venta</h3>
+        <button class="btn-channel active" data-channel="todos">Todos</button>
+        <button class="btn-channel" data-channel="a despachar">A Despachar</button>
+        <button class="btn-channel" data-channel="a retirar por cliente">A Retirar Cliente</button>
+        <button class="btn-channel" data-channel="ecommerce">Ecommerce</button>
+      </div>
+      
+      <!-- Carga Local del Archivo -->
+      <div class="file-loader">
+        <label for="excel-file" class="btn-upload">📁 Cargar Excel Local</label>
+        <input type="file" id="excel-file" accept=".xls,.xlsx,.xlsm" style="display:none;">
+        <div id="sync-info" class="sync-info">Sin sincronizar</div>
+      </div>
+    </aside>
 
-<div class="container">
-    <header>
-        <h1>DASHBOARD DE DESPACHOS</h1>
-        <div>
-            <button class="btn" id="load-btn" onclick="enlazarArchivo()">Enlazar Planilla Local</button>
-            <button class="btn" id="sync-btn" onclick="procesarArchivo()">Sincronizar Cambios</button>
+    <!-- CONTENIDO PRINCIPAL -->
+    <main class="main-content">
+      
+      <!-- CABECERA DE CONTROL -->
+      <header class="top-header">
+        <div class="search-box">
+          <input type="text" id="search-input" placeholder="🔍 Buscar por N° NV, cliente o vendedor...">
         </div>
-    </header>
-
-    <!-- Leyenda de Registros Cargados -->
-    <div class="records-summary" id="records-legend">
-        Esperando carga de datos...
-    </div>
-
-    <!-- Indicadores Principales -->
-    <div class="kpi-grid">
-        <div class="kpi-card">
-            <div class="kpi-title">Total Válidas</div>
-            <div class="kpi-value" id="kpi-total">0</div>
+        <div class="time-window">
+          <span>📅 Ventana: <strong>Últimos 7 días hábiles</strong></span>
         </div>
-        <div class="kpi-card">
-            <div class="kpi-title">Entregadas / Concluidas</div>
-            <div class="kpi-value" id="kpi-entregados" style="color: #34d399;">0</div>
-        </div>
-        <div class="kpi-card">
-            <div class="kpi-title">Coordinadas</div>
-            <div class="kpi-value" id="kpi-coordinadas" style="color: #38bdf8;">0</div>
-        </div>
-        <div class="kpi-card">
-            <div class="kpi-title">Por Coordinar</div>
-            <div class="kpi-value" id="kpi-por-coordinar" style="color: #fbbf24;">0</div>
-        </div>
-    </div>
+      </header>
 
-    <!-- Indicador Dinero Coordinado Total -->
-    <div class="monto-coordinado-bar">
-        <span class="monto-title">Monto Total Coordinado en Dinero</span>
-        <span class="monto-val" id="monto-coordinado">$0</span>
-    </div>
-
-    <!-- Gráfico Circular: Dinero Pendiente de Entregar -->
-    <div class="chart-panel">
-        <h3>Dinero Pendiente de Entregar ($)</h3>
-        <div class="chart-container">
-            <canvas id="pendingChart"></canvas>
-        </div>
-    </div>
-
-    <!-- Desplegable 1: NV Coordinadas -->
-    <details>
-        <summary>
-            <span>Detalle de Notas de Venta Coordinadas</span>
-            <span id="cant-coordinadas" style="color: #888; font-size: 12px;">0 registros</span>
-        </summary>
-        <div class="accordion-content">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Fecha Coordinada</th>
-                        <th>N° Venta</th>
-                        <th>Cliente</th>
-                        <th>Vendedor</th>
-                        <th>Monto Neto</th>
-                    </tr>
-                </thead>
-                <tbody id="tbl-coordinadas">
-                    <tr><td colspan="5" style="text-align:center; color:#555;">Sin datos.</td></tr>
-                </tbody>
-            </table>
-        </div>
-    </details>
-
-    <!-- Desplegable 2: Por Coordinar -->
-    <details>
-        <summary>
-            <span>Órdenes Pendientes por Coordinar</span>
-            <span id="cant-por-coordinar" style="color: #888; font-size: 12px;">0 registros</span>
-        </summary>
-        <div class="accordion-content">
-            <table>
-                <thead>
-                    <tr>
-                        <th>N° Venta</th>
-                        <th>Fecha Orden</th>
-                        <th>Fecha Compromiso</th>
-                        <th>Tiempo Transcurrido</th>
-                        <th>Vendedor</th>
-                    </tr>
-                </thead>
-                <tbody id="tbl-por-coordinar">
-                    <tr><td colspan="5" style="text-align:center; color:#555;">Sin datos.</td></tr>
-                </tbody>
-            </table>
-        </div>
-    </details>
-</div>
-
-<script>
-    let fileHandle;
-    let chartInstance = null;
-
-    async function enlazarArchivo() {
-        try {
-            [fileHandle] = await window.showOpenFilePicker({
-                types: [{ description: 'Archivos Excel', accept: {'application/vnd.ms-excel': ['.xls', '.xlsx']} }]
-            });
-            document.getElementById('load-btn').style.display = 'none';
-            document.getElementById('sync-btn').style.display = 'inline-block';
-            await procesarArchivo();
-        } catch (error) {
-            console.log("Selección cancelada.", error);
-        }
-    }
-
-    async function procesarArchivo() {
-        if (!fileHandle) return;
-        const file = await fileHandle.getFile();
-        const data = await file.arrayBuffer();
-        const workbook = XLSX.read(data, {type: 'array'});
-        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-        const jsonData = XLSX.utils.sheet_to_json(firstSheet);
-        actualizarDashboard(jsonData);
-    }
-
-    function parseFecha(strFecha) {
-        if (!strFecha) return null;
-        if (typeof strFecha === 'number') {
-            return new Date((strFecha - (25567 + 2)) * 86400 * 1000);
-        }
-        const partes = strFecha.toString().split('/');
-        if (partes.length === 3) {
-            return new Date(partes[2], partes[1] - 1, partes[0]);
-        }
-        return new Date(strFecha);
-    }
-
-    function calcularDiasTranscurridos(fechaOrden) {
-        const dateObj = parseFecha(fechaOrden);
-        if (!dateObj || isNaN(dateObj)) return '-';
-        const hoy = new Date();
-        const difMs = hoy - dateObj;
-        const dias = Math.floor(difMs / (1000 * 60 * 60 * 24));
-        return dias < 0 ? 0 : dias;
-    }
-
-    function esRegistroCoordinado(row) {
-        const motivo = (row['Motivo'] || '').toString().trim().toLowerCase();
-        if (motivo.includes('coordinado') && !motivo.includes('por coordinar')) {
-            return true;
-        }
-        if (motivo.includes('por coordinar')) {
-            return false;
-        }
-        // Respaldo si no existe la columna 'Motivo'
-        const fechaCord = row['Fecha cordiada'] || row['Fecha coordinada'];
-        return fechaCord && fechaCord.toString().trim() !== '' && fechaCord.toString().trim() !== 'NaN';
-    }
-
-    function actualizarDashboard(data) {
-        const totalRegistrosTomados = data.length;
-
-        // Filtrar registros omitiendo los que tengan estado Nula
-        const dataValida = data.filter(row => {
-            const estado = (row['Estado'] || '').toString().trim().toLowerCase();
-            return estado !== 'nula';
-        });
-
-        const totalValidos = dataValida.length;
-
-        // Actualizar leyenda informativa
-        document.getElementById('records-legend').innerHTML = 
-            `Se tomaron <strong>${totalRegistrosTomados}</strong> registros, <strong>${totalValidos}</strong> válidos (excluidos registros nulos).`;
-
-        let totalEntregadas = 0;
-        let totalMontoCoordinado = 0;
-        let montoPendienteCoordinado = 0;
-        let montoPendienteNoCoordinado = 0;
-
-        const coordinadasList = [];
-        const porCoordinarList = [];
-
-        dataValida.forEach(row => {
-            const estado = (row['Estado'] || '').toString().trim().toLowerCase();
-            const monto = parseFloat(row['Monto Neto']) || 0;
-            const estaCoordinado = esRegistroCoordinado(row);
-
-            if (estado === 'concluida') {
-                totalEntregadas++;
-            } else {
-                // Si la orden aún no está entregada/concluida, cuenta como pendiente de entregar
-                if (estaCoordinado) {
-                    montoPendienteCoordinado += monto;
-                } else {
-                    montoPendienteNoCoordinado += monto;
-                }
-            }
-
-            if (estaCoordinado) {
-                coordinadasList.push(row);
-                totalMontoCoordinado += monto;
-            } else {
-                porCoordinarList.push(row);
-            }
-        });
-
-        // Actualizar KPIs
-        document.getElementById('kpi-total').innerText = totalValidos;
-        document.getElementById('kpi-entregados').innerText = totalEntregadas;
-        document.getElementById('kpi-coordinadas').innerText = coordinadasList.length;
-        document.getElementById('kpi-por-coordinar').innerText = porCoordinarList.length;
+      <!-- TABLERO KANBAN (4 Columnas) -->
+      <section class="kanban-board">
         
-        document.getElementById('monto-coordinado').innerText = '$' + totalMontoCoordinado.toLocaleString('es-CL');
-        document.getElementById('cant-coordinadas').innerText = coordinadasList.length + ' registros';
-        document.getElementById('cant-por-coordinar').innerText = porCoordinarList.length + ' registros';
+        <!-- Columna 1: Entregado / Concluido -->
+        <div class="kanban-column" id="col-entregado">
+          <div class="column-header">
+            <div class="col-title">
+              <h3>Entregado / Concluido</h3>
+              <span class="badge-count" id="count-entregado">0</span>
+            </div>
+            <div class="kpi-mini">
+              <div>Semana: <strong id="kpi-semana">$0</strong></div>
+              <div>Día Ant.: <strong id="kpi-dia-anterior">$0</strong></div>
+            </div>
+          </div>
+          <div class="column-cards scrollable-y" id="cards-entregado"></div>
+        </div>
 
-        // Renderizar gráfico de dinero pendiente
-        renderizarGraficoDinero(montoPendienteCoordinado, montoPendienteNoCoordinado);
+        <!-- Columna 2: Programado -->
+        <div class="kanban-column" id="col-programado">
+          <div class="column-header">
+            <div class="col-title">
+              <h3>Programado</h3>
+              <span class="badge-count" id="count-programado">0</span>
+            </div>
+          </div>
+          <div class="column-cards scrollable-y" id="cards-programado"></div>
+        </div>
 
-        // Llenar Tabla 1: NV Coordinadas
-        const tbodyCord = document.getElementById('tbl-coordinadas');
-        tbodyCord.innerHTML = '';
-        coordinadasList.forEach(row => {
-            const tr = document.createElement('tr');
-            const monto = parseFloat(row['Monto Neto']) || 0;
-            tr.innerHTML = `
-                <td style="color:#38bdf8;">${row['Fecha cordiada'] || row['Fecha coordinada'] || '-'}</td>
-                <td>${row['N.Venta'] || '#'}</td>
-                <td>${row['Nombre Cliente'] || '-'}</td>
-                <td>${row['Nombre Vendedor'] || '-'}</td>
-                <td>$${monto.toLocaleString('es-CL')}</td>
-            `;
-            tbodyCord.appendChild(tr);
-        });
+        <!-- Columna 3: Por Programar -->
+        <div class="kanban-column" id="col-por-programar">
+          <div class="column-header">
+            <div class="col-title">
+              <h3>Por Programar</h3>
+              <span class="badge-count" id="count-por-programar">0</span>
+            </div>
+          </div>
+          <div class="column-cards scrollable-y" id="cards-por-programar"></div>
+        </div>
 
-        // Llenar Tabla 2: Por Coordinar
-        const tbodyPorCord = document.getElementById('tbl-por-coordinar');
-        tbodyPorCord.innerHTML = '';
-        porCoordinarList.forEach(row => {
-            const dias = calcularDiasTranscurridos(row['Fecha de NV ']);
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td>${row['N.Venta'] || '#'}</td>
-                <td>${row['Fecha de NV '] || '-'}</td>
-                <td>${row['FNV Compromiso'] || '-'}</td>
-                <td><span class="badge dias">${dias} días transcurridos</span></td>
-                <td>${row['Nombre Vendedor'] || '-'}</td>
-            `;
-            tbodyPorCord.appendChild(tr);
-        });
-    }
+        <!-- Columna 4: En Despacho / Tránsito -->
+        <div class="kanban-column" id="col-despacho">
+          <div class="column-header">
+            <div class="col-title">
+              <h3>En Despacho / Tránsito</h3>
+              <span class="badge-count" id="count-despacho">0</span>
+            </div>
+          </div>
+          <div class="column-cards scrollable-y" id="cards-despacho"></div>
+        </div>
 
-    function renderizarGraficoDinero(montoCoordinado, montoNoCoordinado) {
-        const ctx = document.getElementById('pendingChart').getContext('2d');
-        if (chartInstance) chartInstance.destroy();
+      </section>
+    </main>
+  </div>
 
-        Chart.defaults.color = '#888';
-        chartInstance = new Chart(ctx, {
-            type: 'doughnut',
-            data: {
-                labels: ['Pendiente Coordinado ($)', 'Pendiente No Coordinado ($)'],
-                datasets: [{
-                    data: [montoCoordinado, montoNoCoordinado],
-                    backgroundColor: ['#38bdf8', '#fbbf24'],
-                    borderColor: '#1a1a1a',
-                    borderWidth: 2
-                }]
-            },
-            options: {
-                responsive: true,
-                cutout: '70%',
-                plugins: {
-                    legend: { position: 'bottom' },
-                    tooltip: {
-                        callbacks: {
-                            label: function(context) {
-                                let val = context.raw || 0;
-                                return ' ' + context.label + ': $' + val.toLocaleString('es-CL');
-                            }
-                        }
-                    }
-                }
-            }
-        });
-    }
-</script>
+  <script src="app.js"></script>
 </body>
 </html>
