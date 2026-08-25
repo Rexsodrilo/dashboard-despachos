@@ -37,7 +37,32 @@ function handleFileUpload(event) {
     const workbook = XLSX.read(data, { type: 'array' });
     const firstSheet = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[firstSheet];
-    globalData = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+    
+    // Obtener los datos como matriz para ubicar los nombres de columnas reales
+    const rawData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+    
+    // Detectar qué fila contiene las cabeceras (NV, Estado, Cliente, etc.)
+    let headerRowIndex = 0;
+    for (let i = 0; i < Math.min(rawData.length, 10); i++) {
+      const rowStr = rawData[i].join(' ').toLowerCase();
+      if (rowStr.includes('nv') || rowStr.includes('estado') || rowStr.includes('cliente')) {
+        headerRowIndex = i;
+        break;
+      }
+    }
+
+    // Convertir a objetos usando la fila correcta como encabezado
+    const jsonData = XLSX.utils.sheet_to_json(worksheet, { range: headerRowIndex, defval: '' });
+
+    // Normalizar las llaves del objeto a minúsculas
+    globalData = jsonData.map(row => {
+      const normalizedRow = {};
+      Object.keys(row).forEach(key => {
+        const cleanKey = key.toString().trim().toLowerCase();
+        normalizedRow[cleanKey] = row[key];
+      });
+      return normalizedRow;
+    });
 
     const syncInfo = document.getElementById('sync-info');
     if (syncInfo) {
@@ -50,14 +75,24 @@ function handleFileUpload(event) {
   reader.readAsArrayBuffer(file);
 }
 
+// Función auxiliar para buscar valores entre posibles nombres de columna
+function getFieldValue(item, posiblesNombres) {
+  for (const nombre of posiblesNombres) {
+    if (item[nombre] !== undefined && item[nombre] !== '') {
+      return item[nombre].toString().trim();
+    }
+  }
+  return '';
+}
+
 function filterData() {
   const searchTerm = (document.getElementById('search-input')?.value || '').toLowerCase();
 
   return globalData.filter(item => {
-    // Lectura flexible de la columna C1
-    const canalVal = (item['C1'] || item['c1'] || item['CANAL'] || item['Canal'] || '').toString().toLowerCase();
+    // Buscar el canal en la columna c1, canal, o canal de venta
+    const canalVal = getFieldValue(item, ['c1', 'canal', 'canal de venta', 'canal venta']).toLowerCase();
 
-    // Filtro por Canal de Venta
+    // Validar Filtro por Canal
     let matchesChannel = false;
     if (activeChannel === 'todos') {
       matchesChannel = true;
@@ -71,10 +106,10 @@ function filterData() {
       matchesChannel = canalVal.includes('ecommerce') || canalVal.includes('e-commerce') || canalVal.includes('web');
     }
 
-    // Filtro por Búsqueda General
-    const nv = (item['NV'] || item['N° NV'] || item['Nota Venta'] || '').toString().toLowerCase();
-    const cliente = (item['Cliente'] || item['CLIENTE'] || '').toString().toLowerCase();
-    const vendedor = (item['Vendedor'] || item['VENDEDOR'] || '').toString().toLowerCase();
+    // Validar Búsqueda por Texto
+    const nv = getFieldValue(item, ['nv', 'n° nv', 'nota venta', 'nota de venta']).toLowerCase();
+    const cliente = getFieldValue(item, ['cliente', 'nombre cliente', 'razon social']).toLowerCase();
+    const vendedor = getFieldValue(item, ['vendedor', 'nombre vendedor']).toLowerCase();
 
     const matchesSearch = !searchTerm || nv.includes(searchTerm) || cliente.includes(searchTerm) || vendedor.includes(searchTerm);
 
@@ -93,13 +128,13 @@ function renderKanban() {
   };
 
   filtered.forEach(item => {
-    const estado = (item['Estado'] || item['ESTADO'] || '').toString().toLowerCase();
+    const estado = getFieldValue(item, ['estado', 'estado nv', 'situacion', 'est.']).toLowerCase();
 
-    if (estado.includes('entregado') || estado.includes('concluido')) {
+    if (estado.includes('entregado') || estado.includes('concluido') || estado.includes('finalizado')) {
       cols.entregado.push(item);
     } else if (estado.includes('programado')) {
       cols.programado.push(item);
-    } else if (estado.includes('despacho') || estado.includes('transito') || estado.includes('tránsito')) {
+    } else if (estado.includes('despacho') || estado.includes('transito') || estado.includes('tránsito') || estado.includes('en ruta')) {
       cols.despacho.push(item);
     } else {
       cols.porProgramar.push(item);
@@ -125,11 +160,11 @@ function updateColumnUI(containerId, countId, items) {
     const card = document.createElement('div');
     card.className = 'card';
 
-    const nv = item['NV'] || item['N° NV'] || item['Nota Venta'] || 'N/A';
-    const cliente = item['Cliente'] || item['CLIENTE'] || 'Cliente no especificado';
-    const vendedor = item['Vendedor'] || item['VENDEDOR'] || 'Sin asignar';
-    const fecha = item['Fecha NV'] || item['FECHA'] || 'N/A';
-    const compromiso = item['Compromiso'] || item['FECHA COMPROMISO'] || 'N/A';
+    const nv = getFieldValue(item, ['nv', 'n° nv', 'nota venta', 'nota de venta']) || 'N/A';
+    const cliente = getFieldValue(item, ['cliente', 'nombre cliente', 'razon social']) || 'Cliente no especificado';
+    const vendedor = getFieldValue(item, ['vendedor', 'nombre vendedor']) || 'Sin asignar';
+    const fecha = getFieldValue(item, ['fecha nv', 'fecha', 'fecha de emisión']) || 'N/A';
+    const compromiso = getFieldValue(item, ['compromiso', 'fecha compromiso', 'f. compromiso']) || 'N/A';
 
     card.innerHTML = `
       <span class="card-nv">NV: #${nv}</span>
