@@ -37,17 +37,17 @@ function handleFileUpload(event) {
     const data = new Uint8Array(e.target.result);
     const workbook = XLSX.read(data, { type: 'array' });
     
-    // Forzar la lectura de la hoja "NNVO_Corte"
+    // Buscar explícitamente la hoja NNVO_Corte
     let targetSheetName = 'NNVO_Corte';
     if (!workbook.SheetNames.includes(targetSheetName)) {
-      targetSheetName = workbook.SheetNames[0]; // fallback
+      targetSheetName = workbook.SheetNames[0];
     }
     const worksheet = workbook.Sheets[targetSheetName];
     
-    // Convertir hoja a objeto JSON
+    // Convertir hoja a JSON tomando la primera fila como encabezado
     const rawData = XLSX.utils.sheet_to_json(worksheet, { defval: '', raw: false });
 
-    // Estandarizar claves (minúsculas y sin espacios)
+    // Normalizar claves (remover espacios y convertir a minúsculas)
     globalDataRaw = rawData.map(row => {
       const cleanRow = {};
       Object.keys(row).forEach(key => {
@@ -70,7 +70,7 @@ function handleFileUpload(event) {
   reader.readAsArrayBuffer(file);
 }
 
-// Función auxiliar para leer propiedades de forma tolerante a nombres de columna
+// Búsqueda auxiliar de propiedades por variaciones de nombre
 function getValue(item, keys) {
   for (const k of keys) {
     if (item[k] !== undefined && item[k] !== null && item[k] !== '') {
@@ -80,14 +80,14 @@ function getValue(item, keys) {
   return '';
 }
 
-// Agrupa las líneas de productos bajo una misma tarjeta NV
+// Agrupa las 7,191 filas en tarjetas únicas por NV (2,187 NVs aprox.)
 function groupDataByNV() {
   const groups = {};
 
   globalDataRaw.forEach(item => {
     const nvEstado = getValue(item, ['nvestado', 'estado']).toUpperCase();
 
-    // EXCLUIR estado 'N' (Nulo)
+    // Regla: EXCLUIR estado 'N' (Nulo)
     if (nvEstado === 'N') return;
 
     const nvNumero = getValue(item, ['nvnumero', 'n.venta', 'nv']);
@@ -110,7 +110,7 @@ function groupDataByNV() {
       };
     }
 
-    // Agregar detalle de productos
+    // Agregar detalle del producto a la lista del acordeón
     groups[nvNumero].items.push({
       codProd: getValue(item, ['codprod', 'código']),
       detProd: getValue(item, ['detprod', 'producto']),
@@ -126,7 +126,7 @@ function filterData() {
   const searchTerm = (document.getElementById('search-input')?.value || '').toLowerCase();
 
   return groupedNvData.filter(item => {
-    // 1. Filtrar por Canal / Tipo de cliente (Columna D)
+    // 1. Filtro por Canal / Tipo de cliente (Columna D)
     const canalVal = item.tipoCliente.toLowerCase();
     let matchesChannel = false;
     
@@ -141,11 +141,10 @@ function filterData() {
     } else if (activeChannel === 'ecommerce') {
       matchesChannel = canalVal.includes('ecom') || canalVal.includes('web');
     } else if (activeChannel === 'pendiente') {
-      // Filtro especial para pendientes ('P')
       matchesChannel = item.nvEstado === 'P';
     }
 
-    // 2. Búsqueda por NV, Cliente o Vendedor
+    // 2. Filtro de búsqueda general
     const nv = item.nvNumero.toLowerCase();
     const cliente = item.nomAux.toLowerCase();
     const vendedor = item.venDes.toLowerCase();
@@ -171,9 +170,9 @@ function renderKanban() {
     const estado = item.nvEstado;
     const tieneFechaCoord = item.fechaCoordinada !== '' && item.fechaCoordinada !== '0';
 
-    // 1. PENDIENTE (Estado 'P' - En espera de aprobación o modificación)
+    // 1. PENDIENTE (Estado 'P')
     if (estado === 'P') {
-      cols.pendiente.push(item);
+      if (cols.pendiente) cols.pendiente.push(item);
     }
     // 2. ENTREGADO / CONCLUIDO (Estado 'C')
     else if (estado === 'C') {
@@ -187,7 +186,7 @@ function renderKanban() {
     else if (estado === 'A' && item.enPicking && tieneFechaCoord) {
       cols.programado.push(item);
     } 
-    // 5. POR PROGRAMAR (Estado 'A' sin cumplir condiciones anteriores)
+    // 5. POR PROGRAMAR (Restante con Estado 'A')
     else {
       cols.porProgramar.push(item);
     }
@@ -197,7 +196,7 @@ function renderKanban() {
   updateColumnUI('cards-programado', 'count-programado', cols.programado);
   updateColumnUI('cards-por-programar', 'count-por-programar', cols.porProgramar);
   updateColumnUI('cards-despacho', 'count-despacho', cols.despacho);
-  updateColumnUI('cards-pendiente', 'count-pendiente', cols.pendiente);
+  updateColumnUI('cards-pendiente', 'count-pendiente', cols.pendiente || []);
 }
 
 function updateColumnUI(containerId, countId, items) {
@@ -217,7 +216,7 @@ function updateColumnUI(containerId, countId, items) {
       ? item.horaCoordinada 
       : 'Horario abierto';
 
-    // Construcción del HTML de productos para el acordeón desplegable
+    // Generar tabla de items/productos agrupados
     let itemsTable = `
       <div class="card-items-detail" style="display:none; margin-top:10px; font-size:12px; border-top:1px solid #ddd; padding-top:5px;">
         <table style="width:100%; border-collapse:collapse;">
@@ -250,9 +249,9 @@ function updateColumnUI(containerId, countId, items) {
         <span class="card-nv">NV: #${item.nvNumero}</span>
         <span class="badge-ontime" style="cursor:pointer;" onclick="toggleDetails(this)">📦 ${item.items.length} Prod. ▾</span>
       </div>
-      <div class="card-client">${item.nomAux}</div>
-      <div class="card-field">Vendedor: <strong>${item.venDes}</strong></div>
-      <div class="card-field">Fecha NV: <strong>${item.fechaCreacion}</strong></div>
+      <div class="card-client">${item.nomAux || 'Cliente no especificado'}</div>
+      <div class="card-field">Vendedor: <strong>${item.venDes || 'Sin Vendedor'}</strong></div>
+      <div class="card-field">Fecha NV: <strong>${item.fechaCreacion || 'N/A'}</strong></div>
       <div class="card-field">Horario: <strong>${horarioText}</strong></div>
       <div class="card-field">Estado NV: <strong>${item.nvEstado}</strong></div>
       ${itemsTable}
@@ -262,7 +261,7 @@ function updateColumnUI(containerId, countId, items) {
   });
 }
 
-// Función global para expandir o colapsar la lista de productos
+// Función para abrir/cerrar desplegable de detalles
 window.toggleDetails = function(btnElement) {
   const card = btnElement.closest('.card');
   const details = card.querySelector('.card-items-detail');
