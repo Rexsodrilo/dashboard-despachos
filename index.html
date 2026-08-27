@@ -24,6 +24,7 @@
         <button class="btn-channel" data-channel="a retirar por cliente">A Retirar Cliente</button>
         <button class="btn-channel" data-channel="ecommerce">Ecommerce</button>
         <button class="btn-channel" data-channel="retail">Retail</button>
+        <button class="btn-channel btn-pendiente" data-channel="pendiente">⚠️ Pendientes</button>
       </div>
       
       <!-- Carga Local del Archivo -->
@@ -47,7 +48,7 @@
         </div>
       </header>
 
-      <!-- TABLERO KANBAN (4 Columnas) -->
+      <!-- TABLERO KANBAN -->
       <section class="kanban-board">
         
         <!-- Columna 1: Entregado / Concluido -->
@@ -96,6 +97,17 @@
             </div>
           </div>
           <div class="column-cards scrollable-y" id="cards-despacho"></div>
+        </div>
+
+        <!-- Columna 5: Pendientes -->
+        <div class="kanban-column" id="col-pendiente">
+          <div class="column-header">
+            <div class="col-title">
+              <h3>Pendientes</h3>
+              <span class="badge-count" id="count-pendiente">0</span>
+            </div>
+          </div>
+          <div class="column-cards scrollable-y" id="cards-pendiente"></div>
         </div>
 
       </section>
