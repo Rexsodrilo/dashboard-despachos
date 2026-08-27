@@ -115,7 +115,7 @@ function groupDataByNV() {
     const fechaCoordVal = getValue(item, ['fecha_coordinada', 'fechacoordinada']);
     
     const tipoCliente = getValue(item, ['tipo de cliente', 'canal']);
-    const valorDespacho = getValue(item, ['valor a depacho', 'valor despacho']);
+    const valorDespacho = getValue(item, ['valor a depacho', 'valor despacho', 'valor a despacho']);
 
     if (!groups[nvNumero]) {
       groups[nvNumero] = {
@@ -156,9 +156,9 @@ function groupDataByNV() {
   groupedNvData = Object.values(groups).map(item => {
     const esHabitual = item.tipoCliente.toUpperCase().includes('HABITUAL');
     const esBajoMonto = item.valorDespacho.toLowerCase().includes('bajo');
-    const esEstadoA o P = item.nvEstado === 'A' || item.nvEstado === 'P';
+    const esEstadoValido = item.nvEstado === 'A' || item.nvEstado === 'P';
 
-    if (esEstadoA o P && esHabitual && esBajoMonto) {
+    if (esEstadoValido && esHabitual && esBajoMonto) {
       item.esBajoMontoPendiente = true;
       item.motivoP = 'Bajo valor del despacho';
     } else {
@@ -181,7 +181,7 @@ function filterData() {
       matchesChannel = canalVal.includes('retail');
     } else if (activeChannel === 'a despachar' || activeChannel === 'despacho') {
       matchesChannel = canalVal.includes('despach');
-    } else if (activeChannel === 'a retirar cliente' || activeChannel === 'retiro') {
+    } else if (activeChannel === 'a retirar cliente' || activeChannel === 'a retirar por cliente' || activeChannel === 'retiro') {
       matchesChannel = canalVal.includes('retir');
     } else if (activeChannel === 'ecommerce') {
       matchesChannel = canalVal.includes('ecom') || canalVal.includes('web');
@@ -261,8 +261,8 @@ function renderKanban() {
 }
 
 function updateTotalsUI(semana, diaAnt) {
-  const elSemana = document.getElementById('total-semana');
-  const elDiaAnt = document.getElementById('total-dia-anterior');
+  const elSemana = document.getElementById('kpi-semana');
+  const elDiaAnt = document.getElementById('kpi-dia-anterior');
 
   const fmt = (val) => '$' + Math.round(val).toLocaleString('es-CL');
 
