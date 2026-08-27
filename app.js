@@ -1,6 +1,7 @@
 let globalDataRaw = [];
 let groupedNvData = [];
 let activeChannel = 'todos';
+let maxFileDate = new Date(); // Para calculo relativo de dias
 
 document.addEventListener('DOMContentLoaded', () => {
   setupEventListeners();
@@ -37,17 +38,14 @@ function handleFileUpload(event) {
     const data = new Uint8Array(e.target.result);
     const workbook = XLSX.read(data, { type: 'array' });
     
-    // Buscar explícitamente la hoja NNVO_Corte
     let targetSheetName = 'NNVO_Corte';
     if (!workbook.SheetNames.includes(targetSheetName)) {
       targetSheetName = workbook.SheetNames[0];
     }
     const worksheet = workbook.Sheets[targetSheetName];
-    
-    // Convertir hoja a JSON tomando la primera fila como encabezado
     const rawData = XLSX.utils.sheet_to_json(worksheet, { defval: '', raw: false });
 
-    // Normalizar claves (remover espacios y convertir a minúsculas)
+    // Normalizar nombres de columnas a minusculas
     globalDataRaw = rawData.map(row => {
       const cleanRow = {};
       Object.keys(row).forEach(key => {
@@ -56,7 +54,6 @@ function handleFileUpload(event) {
       return cleanRow;
     });
 
-    // Agrupar filas por Nota de Venta (NVNumero)
     groupDataByNV();
 
     const syncInfo = document.getElementById('sync-info');
@@ -70,7 +67,6 @@ function handleFileUpload(event) {
   reader.readAsArrayBuffer(file);
 }
 
-// Búsqueda auxiliar de propiedades por variaciones de nombre
 function getValue(item, keys) {
   for (const k of keys) {
     if (item[k] !== undefined && item[k] !== null && item[k] !== '') {
@@ -80,37 +76,63 @@ function getValue(item, keys) {
   return '';
 }
 
-// Agrupa las 7,191 filas en tarjetas únicas por NV (2,187 NVs aprox.)
+// Convierte string de fecha a objeto Date
+function parseDate(dateStr) {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+// Agrupa lineas por Nota de Venta (NVNumero)
 function groupDataByNV() {
   const groups = {};
+  let latestDate = new Date(0);
 
   globalDataRaw.forEach(item => {
     const nvEstado = getValue(item, ['nvestado', 'estado']).toUpperCase();
 
-    // Regla: EXCLUIR estado 'N' (Nulo)
+    // Regla: Excluir estado 'N' (Nulo)
     if (nvEstado === 'N') return;
 
     const nvNumero = getValue(item, ['nvnumero', 'n.venta', 'nv']);
     if (!nvNumero) return;
+
+    const strFecha = getValue(item, ['fechacreacion', 'fecha nv']);
+    const dateObj = parseDate(strFecha);
+    if (dateObj && dateObj > latestDate) {
+      latestDate = dateObj;
+    }
+
+    // Limpiar monto numerico
+    const montoRaw = getValue(item, ['total linea', 'nvtotlinea']).replace(/[^0-9.-]+/g, "");
+    const montoVal = parseFloat(montoRaw) || 0;
+
+    const pickingVal = getValue(item, ['en picking si/no']).toUpperCase();
+    const esPickingSI = pickingVal === 'SI';
 
     if (!groups[nvNumero]) {
       groups[nvNumero] = {
         nvNumero: nvNumero,
         nvEstado: nvEstado,
         tipoCliente: getValue(item, ['tipo de cliente', 'canal']),
-        fechaCreacion: getValue(item, ['fechacreacion', 'fecha nv']),
+        fechaCreacion: strFecha,
+        fechaObj: dateObj,
         nomAux: getValue(item, ['nomaux', 'nombre cliente']),
         venDes: getValue(item, ['vendes', 'vendedor']),
-        enPicking: getValue(item, ['en picking si/no']).toUpperCase() === 'SI',
+        ordenCompra: getValue(item, ['orden de compra', 'oc']),
+        enPicking: esPickingSI,
+        pickingRaw: pickingVal,
         fechaCoordinada: getValue(item, ['fecha_coordinada', 'fechacoordinada']),
         horaCoordinada: getValue(item, ['hora_coordinada', 'horacoordinada']),
         cargado: getValue(item, ['cargado si/no']).toUpperCase() === 'SI',
-        recibido: getValue(item, ['recibido si/no']).toUpperCase() === 'SI',
+        motivoP: getValue(item, ['motivop', 'motivo']),
+        montoTotal: 0,
         items: []
       };
     }
 
-    // Agregar detalle del producto a la lista del acordeón
+    groups[nvNumero].montoTotal += montoVal;
+
     groups[nvNumero].items.push({
       codProd: getValue(item, ['codprod', 'código']),
       detProd: getValue(item, ['detprod', 'producto']),
@@ -119,6 +141,7 @@ function groupDataByNV() {
     });
   });
 
+  maxFileDate = latestDate.getTime() > 0 ? latestDate : new Date();
   groupedNvData = Object.values(groups);
 }
 
@@ -141,15 +164,16 @@ function filterData() {
     } else if (activeChannel === 'ecommerce') {
       matchesChannel = canalVal.includes('ecom') || canalVal.includes('web');
     } else if (activeChannel === 'pendiente') {
-      matchesChannel = item.nvEstado === 'P';
+      matchesChannel = item.nvEstado === 'P' || !item.enPicking;
     }
 
-    // 2. Filtro de búsqueda general
+    // 2. Busqueda general
     const nv = item.nvNumero.toLowerCase();
     const cliente = item.nomAux.toLowerCase();
     const vendedor = item.venDes.toLowerCase();
+    const oc = item.ordenCompra.toLowerCase();
 
-    const matchesSearch = !searchTerm || nv.includes(searchTerm) || cliente.includes(searchTerm) || vendedor.includes(searchTerm);
+    const matchesSearch = !searchTerm || nv.includes(searchTerm) || cliente.includes(searchTerm) || vendedor.includes(searchTerm) || oc.includes(searchTerm);
 
     return matchesChannel && matchesSearch;
   });
@@ -166,37 +190,70 @@ function renderKanban() {
     pendiente: []
   };
 
+  let totalMontoSemana = 0;
+  let totalMontoDiaAnt = 0;
+
+  const msPerDay = 24 * 60 * 60 * 1000;
+
   filtered.forEach(item => {
     const estado = item.nvEstado;
     const tieneFechaCoord = item.fechaCoordinada !== '' && item.fechaCoordinada !== '0';
-
-    // 1. PENDIENTE (Estado 'P')
-    if (estado === 'P') {
-      if (cols.pendiente) cols.pendiente.push(item);
+    
+    // Calculo de diferencia de dias relativo a la ultima fecha cargada
+    let diffDays = 0;
+    if (item.fechaObj) {
+      diffDays = Math.floor((maxFileDate - item.fechaObj) / msPerDay);
     }
-    // 2. ENTREGADO / CONCLUIDO (Estado 'C')
+
+    // Sumatoria de dinero para los indicadores superiores
+    if (diffDays <= 7) totalMontoSemana += item.montoTotal;
+    if (diffDays === 1) totalMontoDiaAnt += item.montoTotal;
+
+    // Regla de Clasificacion por Columna:
+
+    // A. PENDIENTE: Estado 'P' O Picking 'NO'
+    if (estado === 'P' || item.pickingRaw === 'NO') {
+      cols.pendiente.push(item);
+    } 
+    // B. ENTREGADO / CONCLUIDO: Estado 'C' (Filtro: Ultimos 7 dias)
     else if (estado === 'C') {
-      cols.entregado.push(item);
+      if (diffDays <= 7) {
+        cols.entregado.push(item);
+      }
     } 
-    // 3. EN DESPACHO / TRÁNSITO (Estado 'A' + Picking: SI + Fecha Coordinada + Cargado: SI)
+    // C. EN DESPACHO / TRÁNSITO: Estado 'A' + Picking: SI + Fecha Coord + Cargado: SI (Dia en curso o anterior)
     else if (estado === 'A' && item.enPicking && tieneFechaCoord && item.cargado) {
-      cols.despacho.push(item);
+      if (diffDays <= 1) cols.despacho.push(item);
     } 
-    // 4. PROGRAMADO (Estado 'A' + Picking: SI + Fecha Coordinada)
+    // D. PROGRAMADO: Estado 'A' + Picking: SI + Fecha Coord (Dia en curso o anterior)
     else if (estado === 'A' && item.enPicking && tieneFechaCoord) {
-      cols.programado.push(item);
+      if (diffDays <= 1) cols.programado.push(item);
     } 
-    // 5. POR PROGRAMAR (Restante con Estado 'A')
+    // E. POR PROGRAMAR: Restantes en Estado 'A' (Dia en curso o anterior)
     else {
-      cols.porProgramar.push(item);
+      if (diffDays <= 1) cols.porProgramar.push(item);
     }
   });
 
+  // Actualizar UI de Columnas
   updateColumnUI('cards-entregado', 'count-entregado', cols.entregado);
   updateColumnUI('cards-programado', 'count-programado', cols.programado);
   updateColumnUI('cards-por-programar', 'count-por-programar', cols.porProgramar);
   updateColumnUI('cards-despacho', 'count-despacho', cols.despacho);
-  updateColumnUI('cards-pendiente', 'count-pendiente', cols.pendiente || []);
+  updateColumnUI('cards-pendiente', 'count-pendiente', cols.pendiente);
+
+  // Actualizar indicadores globales de dinero ($)
+  updateTotalsUI(totalMontoSemana, totalMontoDiaAnt);
+}
+
+function updateTotalsUI(semana, diaAnt) {
+  const elSemana = document.getElementById('total-semana');
+  const elDiaAnt = document.getElementById('total-dia-anterior');
+
+  const fmt = (val) => '$' + Math.round(val).toLocaleString('es-CL');
+
+  if (elSemana) elSemana.textContent = fmt(semana);
+  if (elDiaAnt) elDiaAnt.textContent = fmt(diaAnt);
 }
 
 function updateColumnUI(containerId, countId, items) {
@@ -216,7 +273,18 @@ function updateColumnUI(containerId, countId, items) {
       ? item.horaCoordinada 
       : 'Horario abierto';
 
-    // Generar tabla de items/productos agrupados
+    // Mostrar Orden de Compra si existe o si es Retail
+    const ocHtml = (item.ordenCompra && item.ordenCompra !== '0') 
+      ? `<div class="card-field" style="color:#d9534f; font-weight:bold;">O.C.: ${item.ordenCompra}</div>` 
+      : '';
+
+    // Mostrar Motivo de la pausa si la tarjeta esta Pendiente
+    const esPendiente = item.nvEstado === 'P' || item.pickingRaw === 'NO';
+    const motivoHtml = (esPendiente && item.motivoP && item.motivoP !== '0')
+      ? `<div class="card-field" style="background:#fff3cd; color:#856404; padding:2px 5px; border-radius:3px; margin-top:4px;">Motivo: <strong>${item.motivoP}</strong></div>`
+      : '';
+
+    // Tabla desplegable de productos agrupados
     let itemsTable = `
       <div class="card-items-detail" style="display:none; margin-top:10px; font-size:12px; border-top:1px solid #ddd; padding-top:5px;">
         <table style="width:100%; border-collapse:collapse;">
@@ -250,10 +318,13 @@ function updateColumnUI(containerId, countId, items) {
         <span class="badge-ontime" style="cursor:pointer;" onclick="toggleDetails(this)">📦 ${item.items.length} Prod. ▾</span>
       </div>
       <div class="card-client">${item.nomAux || 'Cliente no especificado'}</div>
+      ${ocHtml}
       <div class="card-field">Vendedor: <strong>${item.venDes || 'Sin Vendedor'}</strong></div>
       <div class="card-field">Fecha NV: <strong>${item.fechaCreacion || 'N/A'}</strong></div>
       <div class="card-field">Horario: <strong>${horarioText}</strong></div>
-      <div class="card-field">Estado NV: <strong>${item.nvEstado}</strong></div>
+      <div class="card-field">Monto NV: <strong>$${Math.round(item.montoTotal).toLocaleString('es-CL')}</strong></div>
+      <div class="card-field">Estado: <strong>${item.nvEstado}</strong></div>
+      ${motivoHtml}
       ${itemsTable}
     `;
 
@@ -261,7 +332,7 @@ function updateColumnUI(containerId, countId, items) {
   });
 }
 
-// Función para abrir/cerrar desplegable de detalles
+// Funcion para expandir / colapsar detalle
 window.toggleDetails = function(btnElement) {
   const card = btnElement.closest('.card');
   const details = card.querySelector('.card-items-detail');
