@@ -1,7 +1,6 @@
 let globalDataRaw = [];
 let groupedNvData = [];
 let activeChannel = 'todos';
-let maxFileDate = new Date();
 
 document.addEventListener('DOMContentLoaded', () => {
   setupEventListeners();
@@ -35,39 +34,84 @@ function isFlagYes(val) {
   return str === 'SI' || str === '1' || str === 'S' || str === 'TRUE';
 }
 
+// Convertidor robusto de fechas de Excel
+function parseExcelDate(dateVal) {
+  if (!dateVal) return null;
+  
+  if (dateVal instanceof Date) {
+    return isNaN(dateVal.getTime()) ? null : dateVal;
+  }
+
+  const str = dateVal.toString().trim();
+  if (!str || str === '0') return null;
+
+  // Si es número (serial de Excel)
+  if (!isNaN(str) && Number(str) > 30000) {
+    const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+    return new Date(excelEpoch.getTime() + Number(str) * 86400000);
+  }
+
+  // Si es string formato DD/MM/YYYY o YYYY-MM-DD
+  const parts = str.split(/[-/ ]/);
+  if (parts.length >= 3) {
+    let year, month, day;
+    if (parts[0].length === 4) {
+      year = parseInt(parts[0], 10);
+      month = parseInt(parts[1], 10) - 1;
+      day = parseInt(parts[2], 10);
+    } else {
+      day = parseInt(parts[0], 10);
+      month = parseInt(parts[1], 10) - 1;
+      year = parseInt(parts[2], 10);
+      if (year < 100) year += 2000;
+    }
+    if (year > 1990 && year < 2100 && month >= 0 && month < 12 && day >= 1 && day <= 31) {
+      return new Date(year, month, day);
+    }
+  }
+
+  const d = new Date(str);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 function handleFileUpload(event) {
   const file = event.target.files[0];
   if (!file) return;
 
   const reader = new FileReader();
   reader.onload = (e) => {
-    const data = new Uint8Array(e.target.result);
-    const workbook = XLSX.read(data, { type: 'array' });
-    
-    let targetSheetName = 'NNVO_Corte';
-    if (!workbook.SheetNames.includes(targetSheetName)) {
-      targetSheetName = workbook.SheetNames[0];
-    }
-    const worksheet = workbook.Sheets[targetSheetName];
-    const rawData = XLSX.utils.sheet_to_json(worksheet, { defval: '', raw: false });
+    try {
+      const data = new Uint8Array(e.target.result);
+      const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+      
+      let targetSheetName = 'NNVO_Corte';
+      if (!workbook.SheetNames.includes(targetSheetName)) {
+        targetSheetName = workbook.SheetNames[0];
+      }
+      const worksheet = workbook.Sheets[targetSheetName];
+      const rawData = XLSX.utils.sheet_to_json(worksheet, { defval: '', raw: false });
 
-    globalDataRaw = rawData.map(row => {
-      const cleanRow = {};
-      Object.keys(row).forEach(key => {
-        cleanRow[key.trim().toLowerCase()] = row[key] ? row[key].toString().trim() : '';
+      globalDataRaw = rawData.map(row => {
+        const cleanRow = {};
+        Object.keys(row).forEach(key => {
+          cleanRow[key.trim().toLowerCase()] = row[key] ? row[key].toString().trim() : '';
+        });
+        return cleanRow;
       });
-      return cleanRow;
-    });
 
-    groupDataByNV();
+      groupDataByNV();
 
-    const syncInfo = document.getElementById('sync-info');
-    if (syncInfo) {
-      const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      syncInfo.textContent = `Actualizado: ${timeStr}`;
+      const syncInfo = document.getElementById('sync-info');
+      if (syncInfo) {
+        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        syncInfo.textContent = `Actualizado: ${timeStr}`;
+      }
+
+      renderKanban();
+    } catch (err) {
+      console.error("Error al procesar el archivo Excel:", err);
+      alert("Ocurrió un error al procesar la planilla. Revisa la consola.");
     }
-
-    renderKanban();
   };
   reader.readAsArrayBuffer(file);
 }
@@ -81,15 +125,8 @@ function getValue(item, keys) {
   return '';
 }
 
-function parseDate(dateStr) {
-  if (!dateStr) return null;
-  const d = new Date(dateStr);
-  return isNaN(d.getTime()) ? null : d;
-}
-
 function groupDataByNV() {
   const groups = {};
-  let latestDate = new Date(0);
 
   globalDataRaw.forEach(item => {
     const nvEstado = getValue(item, ['nvestado', 'estado']).toUpperCase();
@@ -101,10 +138,7 @@ function groupDataByNV() {
     if (!nvNumero) return;
 
     const strFecha = getValue(item, ['fechacreacion', 'fecha nv']);
-    const dateObj = parseDate(strFecha);
-    if (dateObj && dateObj > latestDate) {
-      latestDate = dateObj;
-    }
+    const dateObj = parseExcelDate(strFecha);
 
     const montoRaw = getValue(item, ['total linea', 'nvtotlinea']).replace(/[^0-9.-]+/g, "");
     const montoVal = parseFloat(montoRaw) || 0;
@@ -150,9 +184,7 @@ function groupDataByNV() {
     });
   });
 
-  maxFileDate = latestDate.getTime() > 0 ? latestDate : new Date();
-  
-  // Evaluar regla especial de "Bajo valor de despacho" por grupo
+  // Evaluar reglas
   groupedNvData = Object.values(groups).map(item => {
     const esHabitual = item.tipoCliente.toUpperCase().includes('HABITUAL');
     const esBajoMonto = item.valorDespacho.toLowerCase().includes('bajo');
@@ -214,40 +246,31 @@ function renderKanban() {
   let totalMontoSemana = 0;
   let totalMontoDiaAnt = 0;
 
-  const msPerDay = 24 * 60 * 60 * 1000;
-
   filtered.forEach(item => {
     const estado = item.nvEstado;
-    
-    let diffDays = 0;
-    if (item.fechaObj) {
-      diffDays = Math.floor((maxFileDate - item.fechaObj) / msPerDay);
-    }
 
-    if (diffDays <= 7) totalMontoSemana += item.montoTotal;
-    if (diffDays === 1) totalMontoDiaAnt += item.montoTotal;
+    totalMontoSemana += item.montoTotal;
 
-    // Jerarquía de Clasificación en Columnas:
-
-    // 1. ENTREGADO / CONCLUIDO (Prioridad Absoluta): Estado 'C' O Recibido = SI
+    // Reglas de Clasificación:
+    // 1. ENTREGADO / CONCLUIDO: Estado 'C' O Recibido = SI
     if (estado === 'C' || item.recibido) {
-      if (diffDays <= 7) cols.entregado.push(item);
+      cols.entregado.push(item);
     } 
-    // 2. PENDIENTE: Estado 'P', Picking 'NO', o Regla 'Bajo valor de despacho'
+    // 2. PENDIENTE: Estado 'P', Picking 'NO', o Regla 'Bajo valor del despacho'
     else if (estado === 'P' || item.pickingRaw === 'NO' || item.esBajoMontoPendiente) {
       cols.pendiente.push(item);
     } 
     // 3. EN DESPACHO / TRÁNSITO: Estado 'A' + Picking SI + Fecha Coord + Cargado SI
     else if (estado === 'A' && item.enPicking && item.tieneFechaCoord && item.cargado) {
-      if (diffDays <= 1) cols.despacho.push(item);
+      cols.despacho.push(item);
     } 
     // 4. PROGRAMADO: Estado 'A' + Picking SI + Fecha Coord
     else if (estado === 'A' && item.enPicking && item.tieneFechaCoord) {
-      if (diffDays <= 1) cols.programado.push(item);
+      cols.programado.push(item);
     } 
     // 5. POR PROGRAMAR: Restantes en Estado 'A'
     else {
-      if (diffDays <= 1) cols.porProgramar.push(item);
+      cols.porProgramar.push(item);
     }
   });
 
